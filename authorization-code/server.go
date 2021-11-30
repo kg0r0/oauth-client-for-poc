@@ -1,10 +1,9 @@
 package main
 
 import (
-	"encoding/gob"
-	"encoding/json"
 	"html/template"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -92,15 +91,13 @@ func authzCodeCallbackHandler(c echo.Context) error {
 	v.Set("code", code)
 	tokenRes, err := http.Post(client.TokenURL, "application/x-www-form-urlencoded", strings.NewReader((v.Encode())))
 	if err != nil {
-		return c.String(http.StatusBadRequest, "400")
+		return c.NoContent(http.StatusBadRequest)
 	}
-	var tokenData TokenResponse
-	json.NewDecoder(tokenRes.Body).Decode(&tokenData)
-	out, err := json.Marshal(tokenData)
+	body, err := ioutil.ReadAll(tokenRes.Body)
 	if err != nil {
-		return c.NoContent((http.StatusInternalServerError))
+		return c.NoContent(http.StatusBadRequest)
 	}
-	sess.Values["tokenData"] = string(out)
+	sess.Values["tokenData"] = string(body)
 	sess.Values["status"] = true
 	if err := sess.Save(c.Request(), c.Response()); err != nil {
 		log.Println("err: ", err)
@@ -110,7 +107,6 @@ func authzCodeCallbackHandler(c echo.Context) error {
 }
 
 func main() {
-	gob.Register(&TokenResponse{})
 	t := &Template{
 		templates: template.Must(template.ParseGlob("public/views/*.html")),
 	}
