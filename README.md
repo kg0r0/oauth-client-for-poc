@@ -1,4 +1,4 @@
-# oauth-client-practice
+# oauth-client-for-poc
 
 
 ## References
