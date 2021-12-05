@@ -37,10 +37,10 @@ type Template struct {
 }
 
 var client = &Client{
-	AuthzURL:     "https://accounts.google.com/o/oauth2/v2/auth",
-	TokenURL:     "https://oauth2.googleapis.com/token",
-	ClientID:     "",
-	ClientSecret: "",
+	AuthzURL:     "https://demo.identityserver.io/connect/authorize",
+	TokenURL:     "https://demo.identityserver.io/connect/token",
+	ClientID:     "interactive.confidential",
+	ClientSecret: "secret",
 	RedirectURL:  "http://localhost:8080/callback",
 }
 
@@ -64,6 +64,8 @@ func authzCodeHandler(c echo.Context) error {
 	v.Set("redirect_uri", client.RedirectURL)
 	v.Set("scope", "openid")
 	v.Set("state", state)
+	v.Set("code_challenge", "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+	v.Set("code_challenge_method", "S256")
 	u.RawQuery = v.Encode()
 	sess.Values["state"] = state
 	if err := sess.Save(c.Request(), c.Response()); err != nil {
@@ -88,6 +90,7 @@ func authzCodeCallbackHandler(c echo.Context) error {
 	v.Set("client_id", client.ClientID)
 	v.Set("client_secret", client.ClientSecret)
 	v.Set("redirect_uri", client.RedirectURL)
+	v.Set("code_verifier", "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
 	v.Set("code", code)
 	tokenRes, err := http.Post(client.TokenURL, "application/x-www-form-urlencoded", strings.NewReader((v.Encode())))
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 )
@@ -31,9 +32,9 @@ type Template struct {
 }
 
 var client = &Client{
-	TokenURL:     "https://oauth2.googleapis.com/token",
-	ClientID:     "",
-	ClientSecret: "",
+	TokenURL:     "https://demo.identityserver.io/connect/token",
+	ClientID:     "m2m",
+	ClientSecret: "secret",
 }
 
 func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
@@ -43,10 +44,10 @@ func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Con
 func ClientCredentialsHandler(c echo.Context) error {
 	v := url.Values{}
 	v.Set("grant_type", "client_credentials")
-	v.Set("client_id", client.ClientID)
-	v.Set("client_secret", client.ClientSecret)
+	v.Set("scope", "api")
 	cli := &http.Client{}
-	req, _ := http.NewRequest("POST", client.TokenURL, nil)
+	req, _ := http.NewRequest("POST", client.TokenURL, strings.NewReader((v.Encode())))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetBasicAuth(client.ClientID, client.ClientSecret)
 	rsp, err := cli.Do(req)
 	if err != nil {
