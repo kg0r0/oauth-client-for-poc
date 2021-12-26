@@ -2,16 +2,14 @@ package main
 
 import (
 	"html/template"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/gorilla/sessions"
+	"github.com/go-chi/chi/v5"
 	"github.com/labstack/echo-contrib/session"
-	"github.com/labstack/echo/v4"
 )
 
 type Client struct {
@@ -32,9 +30,7 @@ type TokenResponse struct {
 	IDToken      string `json:"id_token"`
 }
 
-type Template struct {
-	templates *template.Template
-}
+var templates = make(map[string]*template.Template)
 
 var client = &Client{
 	AuthzURL:     "https://demo.identityserver.io/connect/authorize",
@@ -44,18 +40,20 @@ var client = &Client{
 	RedirectURL:  "http://localhost:8080/callback",
 }
 
-func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
-	return t.templates.ExecuteTemplate(w, name, data)
-}
-
-func authzCodeHandler(c echo.Context) error {
+func authzCodeHandler(w http.ResponseWriter, r *http.Request) {
 	sess, _ := session.Get("session", c)
 	if sess.Values["status"] == true {
-		return c.Render(http.StatusOK, "result", sess.Values["tokenData"])
+		err := templates["index"].Execute(w, "result", sess.Values["tokenData"])
+		if err != nil {
+			log.Printf("failed to execute template: %v", err)
+		}
+		return
 	}
 	u, err := url.Parse(client.AuthzURL)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "Error")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		return
 	}
 	state := "abc"
 	v := u.Query()
@@ -69,21 +67,29 @@ func authzCodeHandler(c echo.Context) error {
 	u.RawQuery = v.Encode()
 	sess.Values["state"] = state
 	if err := sess.Save(c.Request(), c.Response()); err != nil {
-		log.Println("err: ", err)
-		return c.NoContent((http.StatusInternalServerError))
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		return
 	}
-	return c.Redirect(http.StatusMovedPermanently, u.String())
+	w.Header().Set("location", u.String())
+	w.WriteHeader(http.StatusMovedPermanently)
+	return
 }
 
-func authzCodeCallbackHandler(c echo.Context) error {
-	code := c.QueryParam("code")
-	state := c.QueryParam("state")
+func authzCodeCallbackHandler(w http.ResponseWriter, r *http.Request) {
+	params := r.URL.Query()
+	code := params.Get("code")
+	state := params.Get("state")
 	sess, err := session.Get("session", c)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "Error")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		return
 	}
 	if state != sess.Values["state"] {
-		return c.String(http.StatusBadRequest, "400")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		return
 	}
 	v := url.Values{}
 	v.Set("grant_type", "authorization_code")
@@ -94,31 +100,40 @@ func authzCodeCallbackHandler(c echo.Context) error {
 	v.Set("code", code)
 	tokenRes, err := http.Post(client.TokenURL, "application/x-www-form-urlencoded", strings.NewReader((v.Encode())))
 	if err != nil {
-		return c.NoContent(http.StatusBadRequest)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		return
 	}
 	body, err := ioutil.ReadAll(tokenRes.Body)
 	if err != nil {
-		return c.NoContent(http.StatusBadRequest)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		return
 	}
 	sess.Values["tokenData"] = string(body)
 	sess.Values["status"] = true
 	if err := sess.Save(c.Request(), c.Response()); err != nil {
-		log.Println("err: ", err)
-		return c.NoContent((http.StatusInternalServerError))
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		return
 	}
-	return c.Redirect(http.StatusMovedPermanently, "/")
+	w.Header().Set("location", "")
+	w.WriteHeader(http.StatusMovedPermanently)
+	return
+}
+
+func loadTemplate(name string) *template.Template {
+	t, err := template.ParseFiles("public/views/" + name + ".html")
+	if err != nil {
+		log.Fatalf("template error: %v", err)
+	}
+	return t
 }
 
 func main() {
-	t := &Template{
-		templates: template.Must(template.ParseGlob("public/views/*.html")),
-	}
-	e := echo.New()
-	e.Use(session.Middleware(sessions.NewCookieStore([]byte("secret"))))
-	e.Renderer = t
-	e.GET("/", authzCodeHandler)
-	e.GET("/callback", authzCodeCallbackHandler)
-	if err := e.Start(":8080"); err != http.ErrServerClosed {
-		log.Fatal(err)
-	}
+	templates["index"] = loadTemplate("index")
+	r := chi.NewRouter()
+	r.Get("/", authzCodeHandler)
+	r.Get("/callback", authzCodeCallbackHandler)
+	http.ListenAndServe(":3333", r)
 }
