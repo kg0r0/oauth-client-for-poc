@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/labstack/echo-contrib/session"
+	"github.com/gorilla/sessions"
 )
 
 type Client struct {
@@ -41,7 +41,7 @@ var client = &Client{
 }
 
 func authzCodeHandler(w http.ResponseWriter, r *http.Request) {
-	sess, _ := session.Get("session", c)
+	sess, _ := sessions.Get(r, "session")
 	if sess.Values["status"] == true {
 		err := templates["index"].Execute(w, "result", sess.Values["tokenData"])
 		if err != nil {
@@ -66,7 +66,7 @@ func authzCodeHandler(w http.ResponseWriter, r *http.Request) {
 	v.Set("code_challenge_method", "S256")
 	u.RawQuery = v.Encode()
 	sess.Values["state"] = state
-	if err := sess.Save(c.Request(), c.Response()); err != nil {
+	if err := sess.Save(r, w); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 		return
@@ -80,7 +80,7 @@ func authzCodeCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	params := r.URL.Query()
 	code := params.Get("code")
 	state := params.Get("state")
-	sess, err := session.Get("session", c)
+	sess, err := sessions.Get(r, "session")
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
@@ -112,7 +112,7 @@ func authzCodeCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	sess.Values["tokenData"] = string(body)
 	sess.Values["status"] = true
-	if err := sess.Save(c.Request(), c.Response()); err != nil {
+	if err := sess.Save(r, w); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 		return
