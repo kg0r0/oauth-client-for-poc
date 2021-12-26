@@ -32,6 +32,8 @@ type TokenResponse struct {
 
 var templates = make(map[string]*template.Template)
 
+var store = sessions.NewCookieStore([]byte("SESSION_KEY"))
+
 var client = &Client{
 	AuthzURL:     "https://demo.identityserver.io/connect/authorize",
 	TokenURL:     "https://demo.identityserver.io/connect/token",
@@ -41,9 +43,13 @@ var client = &Client{
 }
 
 func authzCodeHandler(w http.ResponseWriter, r *http.Request) {
-	sess, _ := sessions.Get(r, "session")
-	if sess.Values["status"] == true {
-		err := templates["index"].Execute(w, "result", sess.Values["tokenData"])
+	session, _ := store.Get(r, "session")
+	if session.Values["status"] == true {
+		err := templates["index"].Execute(w, struct {
+			result interface{}
+		}{
+			result: session.Values["tokenData"],
+		})
 		if err != nil {
 			log.Printf("failed to execute template: %v", err)
 		}
@@ -65,28 +71,27 @@ func authzCodeHandler(w http.ResponseWriter, r *http.Request) {
 	v.Set("code_challenge", "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
 	v.Set("code_challenge_method", "S256")
 	u.RawQuery = v.Encode()
-	sess.Values["state"] = state
-	if err := sess.Save(r, w); err != nil {
+	session.Values["state"] = state
+	if err := session.Save(r, w); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 		return
 	}
 	w.Header().Set("location", u.String())
 	w.WriteHeader(http.StatusMovedPermanently)
-	return
 }
 
 func authzCodeCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	params := r.URL.Query()
 	code := params.Get("code")
 	state := params.Get("state")
-	sess, err := sessions.Get(r, "session")
+	session, err := store.Get(r, "session")
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 		return
 	}
-	if state != sess.Values["state"] {
+	if state != session.Values["state"] {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 		return
@@ -110,16 +115,15 @@ func authzCodeCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(err.Error()))
 		return
 	}
-	sess.Values["tokenData"] = string(body)
-	sess.Values["status"] = true
-	if err := sess.Save(r, w); err != nil {
+	session.Values["tokenData"] = string(body)
+	session.Values["status"] = true
+	if err := session.Save(r, w); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 		return
 	}
 	w.Header().Set("location", "")
 	w.WriteHeader(http.StatusMovedPermanently)
-	return
 }
 
 func loadTemplate(name string) *template.Template {
